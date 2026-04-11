@@ -11,10 +11,12 @@
 //   GPIO34  MAP sensor 2  (10k / 20k divider, 1k series resistor) — barometric reference
 //   GPIO33  Battery 1     (27k / 5.1k divider) — primary battery
 //   GPIO32  Battery 2     (27k / 5.1k divider) — auxiliary battery
+//   MAX31855 K-type thermocouple (SCK=IO19, SO=IO18, CS=IO17) — exhaust gas temp
 //
 // Displays (via TCA9548A mux at 0x70 on GPIO21 SDA / GPIO22 SCL):
-//   Channel 0 — Boost gauge OLED   (SH1106 128×64 at 0x3C)
+//   Channel 0 — Boost gauge OLED    (SH1106 128×64 at 0x3C)
 //   Channel 1 — Battery voltage OLED (SH1106 128×64 at 0x3C)
+//   Channel 2 — EGT gauge OLED      (SH1106 128×64 at 0x3C)
 // =============================================================================
 
 #include <Arduino.h>
@@ -22,9 +24,12 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
 #include <Adafruit_SSD1306.h>          // TEMP — for 0.96" test display
+#include <Adafruit_MAX31855.h>
+#include <SPI.h>
 
 #include "screens/boost/boost_screen.h"
 #include "screens/battery/battery_screen.h"
+#include "screens/egt/egt_screen.h"
 
 // =============================================================================
 // Pin definitions
@@ -35,6 +40,10 @@
 #define PIN_BAT1    33      // Battery 1 voltage sense
 #define PIN_BAT2    32      // Battery 2 voltage sense
 
+#define PIN_TC_SCK  19      // MAX31855 SPI clock
+#define PIN_TC_SO   18      // MAX31855 SPI data out (MISO)
+#define PIN_TC_CS   17      // MAX31855 chip select
+
 #define I2C_SDA     21      // I2C SDA to TCA9548A mux
 #define I2C_SCL     22      // I2C SCL to TCA9548A mux
 
@@ -44,6 +53,7 @@
 #define MUX_ADDR      0x70  // TCA9548A default I2C address
 #define MUX_CH_BOOST    0   // Mux channel for the boost OLED
 #define MUX_CH_BATTERY  1   // Mux channel for the battery OLED
+#define MUX_CH_EGT      2   // Mux channel for the EGT OLED
 
 // =============================================================================
 // ADC configuration
@@ -83,6 +93,12 @@
 // =============================================================================
 Adafruit_SH1106G boostDisplay(128, 64, &Wire, -1);
 Adafruit_SSD1306 batteryDisplay(128, 64, &Wire, -1);  // TEMP — SSD1306 for 0.96" test display
+Adafruit_SSD1306 egtDisplay(128, 64, &Wire, -1);      // TEMP — SSD1306 for 0.96" test display
+
+// =============================================================================
+// MAX31855 thermocouple interface (software SPI)
+// =============================================================================
+Adafruit_MAX31855 thermocouple(PIN_TC_SCK, PIN_TC_CS, PIN_TC_SO);
 
 // =============================================================================
 // Loop timing
@@ -168,6 +184,11 @@ void setup() {
     batteryDisplay.clearDisplay();
     batteryDisplay.display();
 
+    tcaSelect(MUX_CH_EGT);
+    egtDisplay.begin(SSD1306_SWITCHCAPVCC, 0x3C);      // TEMP — SSD1306 init
+    egtDisplay.clearDisplay();
+    egtDisplay.display();
+
     // Hand each display to its screen module.
     // The boost splash animation runs inside this call.
     tcaSelect(MUX_CH_BOOST);
@@ -176,6 +197,14 @@ void setup() {
 
     tcaSelect(MUX_CH_BATTERY);
     batteryScreen_init(&batteryDisplay);
+
+    tcaSelect(MUX_CH_EGT);
+    egtScreen_init(&egtDisplay);
+
+    // MAX31855 thermocouple
+    if (!thermocouple.begin()) {
+        Serial.println("ERROR: MAX31855 not found!");
+    }
 
     Serial.println("Ready.\n");
 }
@@ -193,8 +222,11 @@ void loop() {
     float bat1V = adcToBatVoltage(readADCVoltage(PIN_BAT1));
     float bat2V = adcToBatVoltage(readADCVoltage(PIN_BAT2));
 
-    Serial.printf("MAP1: %.1f kPa | MAP2: %.1f kPa | Boost: %.1f PSI | BAT1: %.1fV | BAT2: %.1fV\n",
-                  map1Kpa, map2Kpa, boostPsi, bat1V, bat2V);
+    float egtC = thermocouple.readCelsius();
+    if (isnan(egtC)) egtC = 0.0f;               // sensor fault → show zero
+
+    Serial.printf("MAP1: %.1f kPa | MAP2: %.1f kPa | Boost: %.1f PSI | BAT1: %.1fV | BAT2: %.1fV | EGT: %.0f C\n",
+                  map1Kpa, map2Kpa, boostPsi, bat1V, bat2V, egtC);
 
     // --- Update displays ---
     tcaSelect(MUX_CH_BOOST);
@@ -202,6 +234,9 @@ void loop() {
 
     tcaSelect(MUX_CH_BATTERY);
     batteryScreen_update(bat1V, bat2V);
+
+    tcaSelect(MUX_CH_EGT);
+    egtScreen_update(egtC);
 
     delay(UPDATE_INTERVAL_MS);
 }
