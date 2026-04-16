@@ -14,9 +14,10 @@
 //   MAX31855 K-type thermocouple (SCK=IO19, SO=IO18, CS=IO17) — exhaust gas temp
 //
 // Displays (via TCA9548A mux at 0x70 on GPIO21 SDA / GPIO22 SCL):
-//   Channel 0 — Boost gauge OLED    (SH1106 128×64 at 0x3C)
-//   Channel 1 — Battery voltage OLED (SH1106 128×64 at 0x3C)
-//   Channel 2 — EGT gauge OLED      (SH1106 128×64 at 0x3C)
+//   Channel 0 — Battery voltage OLED (SH1106 128×64 at 0x3C)
+//   Channel 1 — AFR gauge OLED       (SH1106 128×64 at 0x3C)
+//   Channel 2 — EGT gauge OLED       (SH1106 128×64 at 0x3C)
+//   Channel 3 — Boost gauge OLED     (SH1106 128×64 at 0x3C)
 // =============================================================================
 
 #include <Arduino.h>
@@ -29,6 +30,7 @@
 #include "screens/boost/boost_screen.h"
 #include "screens/battery/battery_screen.h"
 #include "screens/egt/egt_screen.h"
+#include "screens/afr/afr_screen.h"
 
 // =============================================================================
 // Pin definitions
@@ -50,9 +52,10 @@
 // TCA9548A I2C multiplexer
 // =============================================================================
 #define MUX_ADDR      0x70  // TCA9548A default I2C address
-#define MUX_CH_BOOST    0   // Mux channel for the boost OLED
-#define MUX_CH_BATTERY  1   // Mux channel for the battery OLED
-#define MUX_CH_EGT      2   // Mux channel for the EGT OLED
+#define MUX_CH_BATTERY  0   // Mux channel for the battery OLED  — screen 1
+#define MUX_CH_AFR      1   // Mux channel for the AFR OLED      — screen 2
+#define MUX_CH_EGT      2   // Mux channel for the EGT OLED      — screen 3
+#define MUX_CH_BOOST    3   // Mux channel for the boost OLED    — screen 4
 
 // =============================================================================
 // ADC configuration
@@ -93,6 +96,7 @@
 Adafruit_SH1106G boostDisplay(128, 64, &Wire, -1);
 Adafruit_SH1106G batteryDisplay(128, 64, &Wire, -1);
 Adafruit_SH1106G egtDisplay(128, 64, &Wire, -1);
+Adafruit_SH1106G afrDisplay(128, 64, &Wire, -1);
 
 // =============================================================================
 // MAX31855 thermocouple interface (software SPI)
@@ -172,7 +176,7 @@ void setup() {
     pinMode(PIN_BAT2, INPUT);
 
     // I2C + mux + displays
-    Wire.begin(I2C_SDA, I2C_SCL);
+    Wire.begin(I2C_SDA, I2C_SCL, 400000);   // 400 kHz Fast Mode — halves display I2C time
 
     tcaSelect(MUX_CH_BOOST);
     boostDisplay.begin(0x3C, false);
@@ -189,6 +193,11 @@ void setup() {
     egtDisplay.clearDisplay();
     egtDisplay.display();
 
+    tcaSelect(MUX_CH_AFR);
+    afrDisplay.begin(0x3C, false);
+    afrDisplay.clearDisplay();
+    afrDisplay.display();
+
     // Hand each display to its screen module.
     // The boost splash animation runs inside this call.
     tcaSelect(MUX_CH_BOOST);
@@ -200,6 +209,10 @@ void setup() {
 
     tcaSelect(MUX_CH_EGT);
     egtScreen_init(&egtDisplay);
+
+    // TODO: wire real wideband O2 sensor input (pin TBD)
+    tcaSelect(MUX_CH_AFR);
+    afrScreen_init(&afrDisplay);
 
     // MAX31855 thermocouple
     if (!thermocouple.begin()) {
@@ -242,6 +255,10 @@ void loop() {
 
     tcaSelect(MUX_CH_EGT);
     egtScreen_update(egtC);
+
+    // TODO: replace with real wideband O2 ADC read once sensor is wired
+    tcaSelect(MUX_CH_AFR);
+    afrScreen_update(0.0f);
 
     delay(UPDATE_INTERVAL_MS);
 }

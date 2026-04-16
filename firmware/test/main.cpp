@@ -19,7 +19,7 @@
 //
 //   To switch screens, press the EN/RST button on the board and choose again.
 //
-// Simulated sensor values (edit the #defines below to tweak the test data):
+// Each screen runner picks random values within a realistic range each update.
 // =============================================================================
 
 #include <Arduino.h>
@@ -30,16 +30,7 @@
 #include "./src/screens/battery/battery_screen.h"
 #include "./src/screens/boost/boost_screen.h"
 #include "./src/screens/egt/egt_screen.h"
-
-// =============================================================================
-// Simulated sensor values — tweak these to test different display states
-// =============================================================================
-#define SIM_BAT1_V      12.6f   // Battery 1 voltage (V)
-#define SIM_BAT2_V      13.1f   // Battery 2 voltage (V)
-
-#define SIM_BOOST_PSI    8.5f   // Boost pressure (PSI)
-
-#define SIM_EGT_C      450.0f   // Exhaust gas temperature (°C)
+#include "./src/screens/afr/afr_screen.h"
 
 // =============================================================================
 // Screen selection
@@ -48,6 +39,7 @@ enum ScreenID {
     SCREEN_BATTERY = 1,
     SCREEN_BOOST   = 2,
     SCREEN_EGT     = 3,
+    SCREEN_AFR     = 4,
 };
 
 #define DEFAULT_SCREEN  SCREEN_BATTERY   // ← loaded if no input within timeout
@@ -73,6 +65,7 @@ static void printMenu() {
     Serial.println("    1 — Battery voltage");
     Serial.println("    2 — Boost gauge");
     Serial.println("    3 — EGT gauge");
+    Serial.println("    4 — AFR gauge");
     Serial.println();
     Serial.printf("  (default: %d in 3 s if no input)\n", DEFAULT_SCREEN);
     Serial.println("============================================");
@@ -100,7 +93,7 @@ static ScreenID waitForSelection() {
     Serial.println();
 
     int choice = input.toInt();
-    if (choice >= SCREEN_BATTERY && choice <= SCREEN_EGT) {
+    if (choice >= SCREEN_BATTERY && choice <= SCREEN_AFR) {
         return (ScreenID)choice;
     }
 
@@ -109,7 +102,7 @@ static ScreenID waitForSelection() {
 }
 
 static void initDisplay() {
-    Wire.begin(OLED_SDA, OLED_SCL);
+    Wire.begin(OLED_SDA, OLED_SCL, 400000);   // 400 kHz Fast Mode
     if (!display.begin(OLED_ADDR, false)) {
         Serial.println("ERROR: OLED not found — check wiring and address!");
         while (true) delay(1000);
@@ -121,37 +114,60 @@ static void initDisplay() {
 // =============================================================================
 // Screen runners
 // =============================================================================
+static float randomFloat(float lo, float hi) {
+    return lo + (hi - lo) * (random(0, 10000) / 10000.0f);
+}
+
 static void runBatteryScreen() {
-    Serial.printf("BATTERY SCREEN  BAT1=%.1fV  BAT2=%.1fV\n",
-                  SIM_BAT1_V, SIM_BAT2_V);
+    Serial.println("BATTERY SCREEN — random 11.8–14.8 V");
 
     batteryScreen_init(&display);
 
     while (true) {
-        batteryScreen_update(SIM_BAT1_V, SIM_BAT2_V);
+        float bat1 = randomFloat(11.8f, 14.8f);
+        float bat2 = randomFloat(11.8f, 14.8f);
+        Serial.printf("Updated BAT1=%.1fV  BAT2=%.1fV\n", bat1, bat2);
+        batteryScreen_update(bat1, bat2);
         delay(500);
     }
 }
 
 static void runBoostScreen() {
-    Serial.printf("BOOST SCREEN  boost=%.1f PSI\n", SIM_BOOST_PSI);
+    Serial.println("BOOST SCREEN — random 0–18 PSI");
 
-    float baselineKpa = 101.3f;   // sea-level reference for the splash animation
+    float baselineKpa = 101.3f;
     boostScreen_init(&display, baselineKpa);
 
     while (true) {
-        boostScreen_update(SIM_BOOST_PSI);
+        float boost = randomFloat(0.0f, 18.0f);
+        Serial.printf("Updated Boost=%.1f PSI\n", boost);
+        boostScreen_update(boost);
         delay(50);
     }
 }
 
 static void runEgtScreen() {
-    Serial.printf("EGT SCREEN  egt=%.0f C\n", SIM_EGT_C);
+    Serial.println("EGT SCREEN — random 200–700 C");
 
     egtScreen_init(&display);
 
     while (true) {
-        egtScreen_update(SIM_EGT_C);
+        float egt = randomFloat(200.0f, 700.0f);
+        Serial.printf("Updated EGT=%.0f C\n", egt);
+        egtScreen_update(egt);
+        delay(50);
+    }
+}
+
+static void runAfrScreen() {
+    Serial.println("AFR SCREEN — random 15.0–50.0");
+
+    afrScreen_init(&display);
+
+    while (true) {
+        float afr = randomFloat(15.0f, 50.0f);
+        Serial.printf("Updated AFR=%.1f\n", afr);
+        afrScreen_update(afr);
         delay(50);
     }
 }
@@ -171,6 +187,7 @@ void setup() {
         case SCREEN_BATTERY: runBatteryScreen(); break;
         case SCREEN_BOOST:   runBoostScreen();   break;
         case SCREEN_EGT:     runEgtScreen();     break;
+        case SCREEN_AFR:     runAfrScreen();     break;
     }
 }
 
