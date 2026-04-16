@@ -222,7 +222,7 @@ void runSplash(
 {
   static const int16_t X_POS[4] = {10, 0, 0, 0};
 
-  for (int16_t y = -LOGO_H; y <= 64; y += 2)
+  for (int16_t y = -LOGO_H; y <= 64; y += 3)
   {
     selectFn(ch0);
     _drawLocalBitmap(disp0, _pajero1, X_POS[0], y, LOGO1_W);
