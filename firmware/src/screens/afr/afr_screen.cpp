@@ -32,50 +32,11 @@ static const float BAR_MIN_AFR = 15.0f;
 static const float BAR_MAX_AFR = 50.0f;
 
 // Tracking for partial-refresh rendering
-static float _lastAfr      = -999.0f;
+static float _lastAfr      = -999.1f;
 static float _lastBarWidth = -1.0f;
 
 // EMA smoothing state
 static float _smoothedAfr = 0.0f;
-
-// =============================================================================
-// Pajero splash logo — 118 × 15 px, stored in flash
-// =============================================================================
-static const int LOGO_W = 118;
-static const int LOGO_H = 15;
-
-static const unsigned char PROGMEM _pajeroBitmap[] = {
-    0xff, 0xff, 0x03, 0xfc, 0x00, 0x07, 0xf1, 0xff, 0xff, 0x9f, 0xff, 0xf8, 0x07, 0xff, 0x80,
-    0xff, 0xff, 0x87, 0xfe, 0x00, 0x07, 0xf1, 0xff, 0xff, 0x9f, 0xff, 0xfe, 0x1f, 0xff, 0xe0,
-    0xff, 0xff, 0xc7, 0xfe, 0x00, 0x07, 0xf1, 0xff, 0xff, 0x9f, 0xff, 0xfe, 0x3f, 0xff, 0xf8,
-    0xff, 0xff, 0xef, 0xff, 0x00, 0x07, 0xf1, 0xff, 0xff, 0x9f, 0xff, 0xfe, 0x7f, 0xcf, 0xf8,
-    0xfe, 0x1f, 0xef, 0xff, 0x00, 0x07, 0xf1, 0xfe, 0x00, 0x1f, 0xe1, 0xff, 0xff, 0x03, 0xfc,
-    0xff, 0xff, 0xff, 0xff, 0x80, 0x07, 0xf1, 0xff, 0xf8, 0x1f, 0xff, 0xfe, 0xff, 0x03, 0xfc,
-    0xff, 0xff, 0xdf, 0xbf, 0x80, 0x07, 0xf1, 0xff, 0xf8, 0x1f, 0xff, 0xfe, 0xff, 0x03, 0xfc,
-    0xff, 0xff, 0xbf, 0x9f, 0xc0, 0x07, 0xf1, 0xff, 0xf8, 0x1f, 0xff, 0xf8, 0xff, 0x03, 0xfc,
-    0xff, 0xfe, 0x3f, 0xff, 0xc0, 0x07, 0xf1, 0xff, 0xf8, 0x1f, 0xff, 0xf0, 0xff, 0x03, 0xfc,
-    0xfe, 0x00, 0x3f, 0xff, 0xe0, 0x07, 0xf1, 0xfe, 0x00, 0x1f, 0xe7, 0xf0, 0xff, 0x03, 0xfc,
-    0xfe, 0x00, 0x7f, 0xff, 0xef, 0xff, 0xf1, 0xff, 0xff, 0x9f, 0xe7, 0xf8, 0x7f, 0x8f, 0xf8,
-    0xfe, 0x00, 0xff, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0x9f, 0xe3, 0xfc, 0x7f, 0xff, 0xf0,
-    0xfe, 0x00, 0xfe, 0x07, 0xf7, 0xff, 0xf1, 0xff, 0xff, 0x9f, 0xe3, 0xfe, 0x3f, 0xff, 0xf0,
-    0xfe, 0x01, 0xfc, 0x03, 0xf3, 0xff, 0xe1, 0xff, 0xff, 0x9f, 0xe1, 0xfe, 0x0f, 0xff, 0xc0,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
-
-
-// =============================================================================
-// Splash animation
-// =============================================================================
-static void _splash() {
-    for (int y = -LOGO_H; y <= 64; y++) {
-        _display->clearDisplay();
-        _display->drawBitmap((128 - LOGO_W) / 2, y,
-                         _pajeroBitmap, LOGO_W, LOGO_H, SH110X_WHITE);
-        _display->display();
-        delay(15);
-    }
-}
-
 
 // =============================================================================
 // Static Components — drawn once after splash, never touched by partial-refresh
@@ -104,56 +65,54 @@ static void _drawStaticComponents() {
 // =============================================================================
 // Render the AFR readout as large digits (text size 4 = 24×32 px each)
 //
-// Displays "XX.X" left-aligned, matching the boost screen layout.
+// Identical pixel layout to the boost screen: tens at x=0, ones at x=24,
+// decimal point (size 3) at x=44, decimal digit at x=62.
 // Each digit is tracked independently — only cells that changed are redrawn.
 // Returns true if the framebuffer was modified.
 // =============================================================================
-static const int DIGIT_SZ    = 4;              // textSize for the big digits
-static const int DIGIT_W     = 6 * DIGIT_SZ;  // 24 px per character cell
-static const int DIGIT_H     = 8 * DIGIT_SZ;  // 32 px
-static const int DIGIT_Y     = 53 - DIGIT_H;  // top of digit row = 21
-static const int DIGIT_X_OFF = 0;             // left-aligned, same as boost
-
 static bool _renderAfrDigits(float afr) {
-    int intPart = (int)afr;
-    int tens    = (intPart / 10) % 10;
-    int ones    = intPart % 10;
-    int decimal = (int)(afr * 10) % 10;
+    int intPart  = (int)afr;
+    int tens     = (intPart / 10) % 10;
+    int ones     = intPart % 10;
+    int decimal  = (int)(afr * 10) % 10;
 
     int lastInt  = (int)_lastAfr;
     int lTens    = (lastInt / 10) % 10;
     int lOnes    = lastInt % 10;
     int lDecimal = (int)(_lastAfr * 10) % 10;
 
-    const bool first = (_lastAfr < 0.0f);
+    const int SZ = 4;
+    const int H  = 8 * SZ;                          // 32 px
+    const int Y  = 53 - H;                          // top of digit row = 21
+
     bool changed = false;
 
     _display->setTextColor(SH110X_WHITE);   // explicit — never rely on prior state
 
-    if (tens != lTens || first) {
-        _display->fillRect(DIGIT_X_OFF, DIGIT_Y, DIGIT_W, DIGIT_H, SH110X_BLACK);
-        _display->setTextSize(DIGIT_SZ);
-        _display->setCursor(DIGIT_X_OFF, DIGIT_Y);
+    if (tens != lTens || afr < 10) {
+        _display->fillRect(0, Y, 24, H, SH110X_BLACK);
+        _display->setTextSize(SZ);
+        _display->setCursor(0, Y);
         _display->print(tens);
         changed = true;
     }
-    if (ones != lOnes || first) {
-        _display->fillRect(DIGIT_X_OFF + DIGIT_W, DIGIT_Y, DIGIT_W, DIGIT_H, SH110X_BLACK);
-        _display->setTextSize(DIGIT_SZ);
-        _display->setCursor(DIGIT_X_OFF + DIGIT_W, DIGIT_Y);
+    if (ones != lOnes) {
+        _display->fillRect(24, Y, 24, H, SH110X_BLACK);
+        _display->setTextSize(SZ);
+        _display->setCursor(24, Y);
         _display->print(ones);
         changed = true;
     }
 
-    // Decimal point — always redraw (cheap, prevents ghosting)
+    // Decimal point — always redraw (cheap)
     _display->setTextSize(3);
-    _display->setCursor(DIGIT_X_OFF + 2 * DIGIT_W, DIGIT_Y + 7);
+    _display->setCursor(44, Y + 7);
     _display->print(".");
 
-    if (decimal != lDecimal || first) {
-        _display->fillRect(DIGIT_X_OFF + 2 * DIGIT_W + 18, DIGIT_Y, DIGIT_W, DIGIT_H, SH110X_BLACK);
-        _display->setTextSize(DIGIT_SZ);
-        _display->setCursor(DIGIT_X_OFF + 2 * DIGIT_W + 18, DIGIT_Y);
+    if (decimal != lDecimal) {
+        _display->fillRect(62, Y, 24, H, SH110X_BLACK);
+        _display->setTextSize(SZ);
+        _display->setCursor(62, Y);
         _display->print(decimal);
         changed = true;
     }
@@ -219,11 +178,10 @@ void afrScreen_init(Adafruit_SH1106G *dsp) {
     _display = dsp;
 
     // Reset all tracking state
-    _lastAfr      = -999.0f;
+    _lastAfr      = -999.1f;
     _lastBarWidth = -1.0f;
     _smoothedAfr  = 0.0f;
 
-    _splash();
     _drawStaticComponents();
 
     // Render digits/bar immediately so the screen isn't blank until the first update
@@ -231,6 +189,18 @@ void afrScreen_init(Adafruit_SH1106G *dsp) {
 }
 
 void afrScreen_update(float afr) {
+    // 0.0 is the sentinel for "no sensor connected" — display 00.0 as-is,
+    // bypassing clamping (which would push it to BAR_MIN_AFR ≈ 15.0) and
+    // smoothing (which would converge slowly from any prior value).
+    if (afr == 0.0f) {
+        _smoothedAfr = 0.0f;
+        bool dirty = false;
+        dirty |= _renderAfrDigits(0.0f);
+        dirty |= _renderBar(0.0f);
+        if (dirty) _display->display();
+        return;
+    }
+
     // Clamp to the displayable/bar range
     float clamped = constrain(afr, BAR_MIN_AFR, BAR_MAX_AFR);
 
