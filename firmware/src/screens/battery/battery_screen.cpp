@@ -24,14 +24,14 @@ static Adafruit_SH1106G *_display = nullptr;
 static float _lastV[2] = { -999.0f, -999.0f };
 
 // X offset for each half
-static const int HALF_X[2] = { 0, 64 };a
+static const int HALF_X[2] = { 0, 64 };
 
 // Battery body: 58×48 px, bottom flush with screen (y 16–63)
 static const int BODY_X = 3, BODY_Y = 16, BODY_W = 58, BODY_H = 48;
 
 // Two solid terminal pins above body — symmetric about the body centre
-static const int PIN_W = 10, PIN_H = 8, PIN_Y = BODY_Y - PIN_H;
-static const int PIN_X[2] = { 14, 40 };   // left and right pin x (within half)
+static const int PIN_W = 10, PIN_H = 6, PIN_Y = BODY_Y - PIN_H;
+static const int PIN_X[2] = { 12, 42 };   // left and right pin x (within half)
 
 // "XX.X" digit block: textSize 2 → 12×16 px per char, 48 px total width
 // Centred in the body interior (56 px wide, 46 px tall after 1 px borders)
@@ -49,10 +49,6 @@ static void _drawChrome(int xOff) {
 
     // Battery body outline
     _display->drawRect(xOff + BODY_X, BODY_Y, BODY_W, BODY_H, SH110X_WHITE);
-
-    // Erase top border under pin interiors so pins merge visually with body
-    _display->drawFastHLine(xOff + PIN_X[0] + 1, BODY_Y, PIN_W - 2, SH110X_BLACK);
-    _display->drawFastHLine(xOff + PIN_X[1] + 1, BODY_Y, PIN_W - 2, SH110X_BLACK);
 }
 
 
@@ -67,6 +63,8 @@ static void _renderDigits(int xOff, float voltage, float &lastV) {
     const int Y = DIG_Y;
     const bool first = (lastV < 0.0f);
     bool changed = false;
+
+    _display->setTextColor(SH110X_WHITE);   // explicit — never rely on prior state
 
     if (tens != lTens || first) {
         _display->fillRect(X, Y, DIG_CW, DIG_CH, SH110X_BLACK);
@@ -110,6 +108,9 @@ void batteryScreen_init(Adafruit_SH1106G *dsp) {
     _drawChrome(HALF_X[0]);
     _drawChrome(HALF_X[1]);
     _display->display();
+
+    // Render digits immediately so the screen isn't blank until the first update
+    batteryScreen_update(0.0f, 0.0f);
 }
 
 void batteryScreen_update(float bat1Voltage, float bat2Voltage) {

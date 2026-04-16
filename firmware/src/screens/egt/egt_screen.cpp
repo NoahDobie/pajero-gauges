@@ -143,6 +143,8 @@ static void _renderEgtDigits(float temp) {
 
     bool changed = false;
 
+    _display->setTextColor(SH110X_WHITE);   // explicit — never rely on prior state
+
     if (hundreds != lHundreds || temp < 100) {
         _display->fillRect(0, Y, CW, H, SH110X_BLACK);
         _display->setTextSize(SZ);
@@ -241,6 +243,9 @@ void egtScreen_init(Adafruit_SH1106G *dsp) {
 
     _splash();
     _drawStaticComponents();
+
+    // Render digits/bar immediately so the screen isn't blank until the first update
+    egtScreen_update(0.0f);
 }
 
 void egtScreen_update(float egtCelsius) {

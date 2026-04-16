@@ -142,6 +142,8 @@ static void _renderBoostDigits(float pressure) {
 
     bool changed = false;
 
+    _display->setTextColor(SH110X_WHITE);   // explicit — never rely on prior state
+
     if (tens != lTens || pressure < 10) {
         _display->fillRect(0, Y, 24, H, SH110X_BLACK);
         _display->setTextSize(SZ);
@@ -311,6 +313,9 @@ void boostScreen_init(Adafruit_SH1106G *dsp, float &baselineKpa) {
     // baselineKpa is sampled by the caller (main) during its own init
     // sequence — we don't read sensors here so the module stays pure display.
     (void)baselineKpa;
+
+    // Render digits/bar immediately so the screen isn't blank until the first update
+    boostScreen_update(0.0f);
 }
 
 void boostScreen_update(float boostPsi) {
