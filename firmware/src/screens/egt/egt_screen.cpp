@@ -68,7 +68,7 @@ static void _drawStaticComponents() {
     _display->print((char)247);
 
     _display->setFont(&FreeSansBoldOblique9pt7b);
-    _display->setCursor(79, 44);   // italic C, baseline-aligned with "psi"
+    _display->setCursor(79, 53);   // italic C, baseline at bottom of digit row
     _display->print("C");
 
     _display->setFont();           // back to default 6x8

@@ -79,14 +79,15 @@ static bool _renderDigits(int xOff, float voltage, float &lastV) {
         changed = true;
     }
 
-    // Decimal point — static pixel, always write to framebuffer
-    _display->setTextSize(DIG_SZ);
-    _display->setCursor(X + 2 * DIG_CW, Y);
+    // Decimal point — textSize 1 (6×8 px), vertically centred in the digit row,
+    // with a 1 px gap on each side (mirrors the boost/AFR dot treatment)
+    _display->setTextSize(1);
+    _display->setCursor(X + 2 * DIG_CW + 1, Y + (DIG_CH - 8) / 2);
     _display->print(".");
 
     if (dec != lDec || first) {
-        _display->fillRect(X + 3 * DIG_CW, Y, DIG_CW, DIG_CH, SH110X_BLACK);
-        _display->setTextSize(DIG_SZ); _display->setCursor(X + 3 * DIG_CW, Y);
+        _display->fillRect(X + 2 * DIG_CW + 8, Y, DIG_CW, DIG_CH, SH110X_BLACK);
+        _display->setTextSize(DIG_SZ); _display->setCursor(X + 2 * DIG_CW + 8, Y);
         _display->print(dec);
         changed = true;
     }
