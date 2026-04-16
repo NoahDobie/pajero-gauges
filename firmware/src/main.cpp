@@ -31,7 +31,6 @@
 #include "screens/battery/battery_screen.h"
 #include "screens/egt/egt_screen.h"
 #include "screens/afr/afr_screen.h"
-#include "screens/splash.h"
 
 // =============================================================================
 // Pin definitions
@@ -202,13 +201,6 @@ void setup() {
     afrDisplay.clearDisplay();
     afrDisplay.display();
 
-    // Run the coordinated full-width Pajero logo splash across all four screens.
-    runSplash(tcaSelect,
-              MUX_CH_BATTERY, &batteryDisplay,
-              MUX_CH_AFR,     &afrDisplay,
-              MUX_CH_EGT,     &egtDisplay,
-              MUX_CH_BOOST,   &boostDisplay);
-
     // Hand each display to its screen module.
     tcaSelect(MUX_CH_BOOST);
     float baselineKpa = 0.0f;
@@ -257,18 +249,18 @@ void loop() {
     tcaSelect(MUX_CH_BOOST);
     boostScreen_update(boostPsi);
 
-    if (++batteryFrame >= BATTERY_UPDATE_FRAMES) {
-        batteryFrame = 0;
-        tcaSelect(MUX_CH_BATTERY);
-        batteryScreen_update(bat1V, bat2V);
-    }
-
     tcaSelect(MUX_CH_EGT);
     egtScreen_update(egtC);
 
     // TODO: replace with real wideband O2 ADC read once sensor is wired
     tcaSelect(MUX_CH_AFR);
     afrScreen_update(0.0f);
+
+    if (++batteryFrame >= BATTERY_UPDATE_FRAMES) {
+        batteryFrame = 0;
+        tcaSelect(MUX_CH_BATTERY);
+        batteryScreen_update(bat1V, bat2V);
+    }
 
     delay(UPDATE_INTERVAL_MS);
 }

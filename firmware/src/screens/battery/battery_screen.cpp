@@ -2,16 +2,20 @@
 // battery_screen.cpp — Dual battery voltage screen module
 //
 // 128×64 OLED split into two equal 64×64 halves.
-// Each half: battery icon (body outline + two solid terminal pins) with a
-// centred "XX.X" voltage readout inside.  Leading zeros always shown.
-// Partial-refresh: only digit cells that change are repainted each frame.
+// Each half shows a battery outline with two terminal pins and a "XX.X"
+// voltage readout centred inside the body.
 //
-//    ██████    ██████   ← solid terminal pins (10×8 px)
-//   ┌──────────────┐
-//   │              │
-//   │    XX.X      │   ← centred voltage (textSize 2)
-//   │              │
-//   └──────────────┘
+// All pixel positions are hardcoded — no dynamic layout calculations.
+//
+// Left half  — absolute coords (x 0–63)
+// Right half — absolute coords (x 64–127), all x values = left + 64
+//
+//   [ pin ]  [ pin ]      x: 8,10px  and  46,10px  (within half)
+//  ┌────────────────┐     body: x=3, y=16, 58×48 px
+//  │                │
+//  │    1 2 . 3     │     digits at y=32, textSize 2 (12×16 px)
+//  │                │     dot textSize 1 (6×8 px)
+//  └────────────────┘
 // =============================================================================
 
 #include "battery_screen.h"
@@ -20,74 +24,60 @@
 
 static Adafruit_SH1106G *_display = nullptr;
 
-// Partial-refresh state — sentinel < 0 forces a full redraw on first call
+// Partial-refresh state — sentinel forces full redraw on first call
 static float _lastV[2] = { -999.0f, -999.0f };
 
-// X offset for each half
-static const int HALF_X[2] = { 0, 64 };
 
-// Battery body: 58×48 px, bottom flush with screen (y 16–63)
-static const int BODY_X = 3, BODY_Y = 16, BODY_W = 58, BODY_H = 48;
-
-// Two solid terminal pins above body — symmetric about the body centre
-static const int PIN_W = 10, PIN_H = 6, PIN_Y = BODY_Y - PIN_H;
-static const int PIN_X[2] = { 8, 46 };   // left and right pin x (within half)
-
-// "XX.X" digit block: textSize 2 → 12×16 px per char, 48 px total width
-// Centred in the body interior (56 px wide, 46 px tall after 1 px borders)
-static const int DIG_SZ = 2;
-static const int DIG_CW = 6 * DIG_SZ;  // 12 px
-static const int DIG_CH = 8 * DIG_SZ;  // 16 px
-static const int DIG_X_OFF = BODY_X + 1 + (BODY_W - 2 - 4 * DIG_CW) / 2;  // = 8
-static const int DIG_Y     = BODY_Y + 1 + (BODY_H - 2 - DIG_CH) / 2;       // = 32
-
-
-static void _drawChrome(int xOff) {
-    // Solid terminal pins
-    _display->fillRect(xOff + PIN_X[0], PIN_Y, PIN_W, PIN_H, SH110X_WHITE);
-    _display->fillRect(xOff + PIN_X[1], PIN_Y, PIN_W, PIN_H, SH110X_WHITE);
-
-    // Battery body outline
-    _display->drawRect(xOff + BODY_X, BODY_Y, BODY_W, BODY_H, SH110X_WHITE);
+static void _drawChrome(int x0) {
+    // Two solid terminal pins above the body
+    _display->fillRect(x0 +  8, 10, 10, 6, SH110X_WHITE);
+    _display->fillRect(x0 + 46, 10, 10, 6, SH110X_WHITE);
+    // Battery body outline — widened to x=1, w=62 to fit textSize 3 digits
+    _display->drawRect(x0 + 1, 16, 62, 48, SH110X_WHITE);
 }
 
 
-static bool _renderDigits(int xOff, float voltage, float &lastV) {
-    int iv = (int)voltage;
-    int tens  = (iv / 10) % 10,  ones  = iv % 10,  dec  = (int)(voltage * 10) % 10;
+static bool _renderDigits(int x0, float voltage, float &lastV) {
+    int iv    = (int)voltage;
+    int tens  = (iv / 10) % 10, ones = iv % 10, dec = (int)(voltage * 10) % 10;
 
-    int lv = (int)lastV;
-    int lTens = (lv / 10) % 10, lOnes = lv % 10,  lDec = (int)(lastV * 10) % 10;
+    int lv    = (int)lastV;
+    int lTens = (lv / 10) % 10, lOnes = lv % 10, lDec = (int)(lastV * 10) % 10;
 
-    const int X = xOff + DIG_X_OFF;
-    const int Y = DIG_Y;
     const bool first = (lastV < 0.0f);
     bool changed = false;
 
-    _display->setTextColor(SH110X_WHITE);   // explicit — never rely on prior state
+    // Digit block: textSize 3 (18×24 px per digit), textSize 1 dot (6×8 px)
+    // Block = 18 + 18 + 6 + 18 = 60 px — exact fit in widened 60 px interior (x=2..61)
+    // Height 24 px → top at 17 + (46-24)/2 = 28
+    const int DX = x0 + 3;   // left edge of digit block (centred in 60 px interior)
+    const int DY = 28;        // top of digit row
 
+    _display->setTextColor(SH110X_WHITE);
+
+    // Tens digit  (x: DX,      18×24 px)
     if (tens != lTens || first) {
-        _display->fillRect(X, Y, DIG_CW, DIG_CH, SH110X_BLACK);
-        _display->setTextSize(DIG_SZ); _display->setCursor(X, Y);
+        _display->fillRect(DX, DY, 18, 24, SH110X_BLACK);
+        _display->setTextSize(3); _display->setCursor(DX, DY);
         _display->print(tens);
         changed = true;
     }
+    // Ones digit  (x: DX+18,   18×24 px)
     if (ones != lOnes || first) {
-        _display->fillRect(X + DIG_CW, Y, DIG_CW, DIG_CH, SH110X_BLACK);
-        _display->setTextSize(DIG_SZ); _display->setCursor(X + DIG_CW, Y);
+        _display->fillRect(DX + 18, DY, 18, 24, SH110X_BLACK);
+        _display->setTextSize(3); _display->setCursor(DX + 18, DY);
         _display->print(ones);
         changed = true;
     }
-
-    // Decimal point — textSize 1 (6×8 px), vertically centred in the digit row,
-    // with a 1 px gap on each side (mirrors the boost/AFR dot treatment)
+    // Decimal point — textSize 1 (6×8 px), bottom-aligned with digits
     _display->setTextSize(1);
-    _display->setCursor(X + 2 * DIG_CW + 1, Y + (DIG_CH - 8) / 2);
+    _display->setCursor(DX + 34, DY + 14);
     _display->print(".");
 
+    // Decimal digit (x: DX+41,  18×24 px)
     if (dec != lDec || first) {
-        _display->fillRect(X + 2 * DIG_CW + 8, Y, DIG_CW, DIG_CH, SH110X_BLACK);
-        _display->setTextSize(DIG_SZ); _display->setCursor(X + 2 * DIG_CW + 8, Y);
+        _display->fillRect(DX + 41, DY, 16, 24, SH110X_BLACK);
+        _display->setTextSize(3); _display->setCursor(DX + 41, DY);
         _display->print(dec);
         changed = true;
     }
@@ -106,11 +96,10 @@ void batteryScreen_init(Adafruit_SH1106G *dsp) {
     _lastV[0] = _lastV[1] = -999.0f;
 
     _display->clearDisplay();
-    _drawChrome(HALF_X[0]);
-    _drawChrome(HALF_X[1]);
+    _drawChrome(0);
+    _drawChrome(64);
     _display->display();
 
-    // Render digits immediately so the screen isn't blank until the first update
     batteryScreen_update(0.0f, 0.0f);
 }
 
@@ -120,8 +109,8 @@ void batteryScreen_update(float bat1Voltage, float bat2Voltage) {
         constrain(bat2Voltage, 0.0f, 19.9f)
     };
     bool dirty = false;
-    for (int i = 0; i < 2; i++) {
-        dirty |= _renderDigits(HALF_X[i], v[i], _lastV[i]);
-    }
+    dirty |= _renderDigits(0,  v[0], _lastV[0]);
+    dirty |= _renderDigits(64, v[1], _lastV[1]);
     if (dirty) _display->display();
 }
+
