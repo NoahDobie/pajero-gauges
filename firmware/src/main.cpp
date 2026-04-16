@@ -23,7 +23,6 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
-#include <Adafruit_SSD1306.h>          // TEMP — for 0.96" test display
 #include <Adafruit_MAX31855.h>
 #include <SPI.h>
 
@@ -92,8 +91,8 @@
 // Display objects — one per physical OLED, each with its own framebuffer
 // =============================================================================
 Adafruit_SH1106G boostDisplay(128, 64, &Wire, -1);
-Adafruit_SSD1306 batteryDisplay(128, 64, &Wire, -1);  // TEMP — SSD1306 for 0.96" test display
-Adafruit_SSD1306 egtDisplay(128, 64, &Wire, -1);      // TEMP — SSD1306 for 0.96" test display
+Adafruit_SH1106G batteryDisplay(128, 64, &Wire, -1);
+Adafruit_SH1106G egtDisplay(128, 64, &Wire, -1);
 
 // =============================================================================
 // MAX31855 thermocouple interface (software SPI)
@@ -103,7 +102,8 @@ Adafruit_MAX31855 thermocouple(PIN_TC_SCK, PIN_TC_CS, PIN_TC_SO);
 // =============================================================================
 // Loop timing
 // =============================================================================
-#define UPDATE_INTERVAL_MS  50      // ~20 Hz — fast enough for smooth bar graph
+#define UPDATE_INTERVAL_MS      50   // ~20 Hz — fast enough for smooth bar graph
+#define BATTERY_UPDATE_FRAMES   10   // update battery screen every 10 frames (~500 ms)
 
 
 // =============================================================================
@@ -180,12 +180,12 @@ void setup() {
     boostDisplay.display();
 
     tcaSelect(MUX_CH_BATTERY);
-    batteryDisplay.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // TEMP — SSD1306 init
+    batteryDisplay.begin(0x3C, false);
     batteryDisplay.clearDisplay();
     batteryDisplay.display();
 
     tcaSelect(MUX_CH_EGT);
-    egtDisplay.begin(SSD1306_SWITCHCAPVCC, 0x3C);      // TEMP — SSD1306 init
+    egtDisplay.begin(0x3C, false);
     egtDisplay.clearDisplay();
     egtDisplay.display();
 
@@ -214,6 +214,8 @@ void setup() {
 // Main loop
 // =============================================================================
 void loop() {
+    static uint8_t batteryFrame = 0;
+
     // --- Read sensors ---
     float map1Kpa  = adcToMapKpa(readADCVoltage(PIN_MAP1));
     float map2Kpa  = adcToMapKpa(readADCVoltage(PIN_MAP2));
@@ -232,8 +234,11 @@ void loop() {
     tcaSelect(MUX_CH_BOOST);
     boostScreen_update(boostPsi);
 
-    tcaSelect(MUX_CH_BATTERY);
-    batteryScreen_update(bat1V, bat2V);
+    if (++batteryFrame >= BATTERY_UPDATE_FRAMES) {
+        batteryFrame = 0;
+        tcaSelect(MUX_CH_BATTERY);
+        batteryScreen_update(bat1V, bat2V);
+    }
 
     tcaSelect(MUX_CH_EGT);
     egtScreen_update(egtC);

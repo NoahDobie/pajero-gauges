@@ -11,13 +11,13 @@
 #ifndef EGT_SCREEN_H
 #define EGT_SCREEN_H
 
-#include <Adafruit_SSD1306.h>           // TEMP — swap back to SH110X when 1.3" arrives
+#include <Adafruit_SH110X.h>
 
 // Call once after the display has been begin()'d.
 // Draws the static gauge chrome (title, unit label, bar border).
 //
 //   *dsp — pointer to the shared display object
-void egtScreen_init(Adafruit_SSD1306 *dsp);  // TEMP — SSD1306 for 0.96" test display
+void egtScreen_init(Adafruit_SH1106G *dsp);
 
 // Call every loop iteration with the latest EGT in °C.
 // Handles EMA smoothing and partial-refresh rendering (only redraws

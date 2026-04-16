@@ -27,7 +27,7 @@
 // =============================================================================
 // Module-level state
 // =============================================================================
-static Adafruit_SSD1306 *_display = nullptr;  // TEMP — SSD1306 for 0.96" test display
+static Adafruit_SH1106G *_display = nullptr;
 
 // Max EGT the bar graph represents (°C).
 // 800 °C gives a visual margin above the 700 °C sustained safe limit
@@ -77,7 +77,7 @@ static void _splash() {
     for (int y = -LOGO_H; y <= 64; y++) {
         _display->clearDisplay();
         _display->drawBitmap((128 - LOGO_W) / 2, y,
-                         _pajeroBitmap, LOGO_W, LOGO_H, SSD1306_WHITE);
+                         _pajeroBitmap, LOGO_W, LOGO_H, SH110X_WHITE);
         _display->display();
         delay(15);
     }
@@ -99,7 +99,7 @@ static void _drawStaticComponents() {
     _display->clearDisplay();
 
     _display->setFont(&FreeSansBoldOblique9pt7b);
-    _display->setTextColor(SSD1306_WHITE);
+    _display->setTextColor(SH110X_WHITE);
     _display->setCursor(0, 13);
     _display->print("EGT");
 
@@ -111,7 +111,7 @@ static void _drawStaticComponents() {
     _display->print("C");
     _display->setTextSize(1);
 
-    _display->drawRect(0, 57, 128, 7, SSD1306_WHITE);
+    _display->drawRect(0, 57, 128, 7, SH110X_WHITE);
 
     _display->display();
 }
@@ -144,21 +144,21 @@ static void _renderEgtDigits(float temp) {
     bool changed = false;
 
     if (hundreds != lHundreds || temp < 100) {
-        _display->fillRect(0, Y, CW, H, SSD1306_BLACK);
+        _display->fillRect(0, Y, CW, H, SH110X_BLACK);
         _display->setTextSize(SZ);
         _display->setCursor(0, Y);
         _display->print(hundreds);
         changed = true;
     }
     if (tens != lTens || temp < 10) {
-        _display->fillRect(CW, Y, CW, H, SSD1306_BLACK);
+        _display->fillRect(CW, Y, CW, H, SH110X_BLACK);
         _display->setTextSize(SZ);
         _display->setCursor(CW, Y);
         _display->print(tens);
         changed = true;
     }
     if (ones != lOnes) {
-        _display->fillRect(2 * CW, Y, CW, H, SSD1306_BLACK);
+        _display->fillRect(2 * CW, Y, CW, H, SH110X_BLACK);
         _display->setTextSize(SZ);
         _display->setCursor(2 * CW, Y);
         _display->print(ones);
@@ -190,11 +190,11 @@ static void _renderBar(float temp) {
 
     // Erase using integer pixel boundaries — no truncation gap possible
     if (newPx < oldPx) {
-        _display->fillRect(1 + newPx, 58, oldPx - newPx, 5, SSD1306_BLACK);
+        _display->fillRect(1 + newPx, 58, oldPx - newPx, 5, SH110X_BLACK);
     }
 
     if (newPx > 0) {
-        _display->fillRect(1, 58, newPx, 5, SSD1306_WHITE);
+        _display->fillRect(1, 58, newPx, 5, SH110X_WHITE);
     }
 
     _display->display();
@@ -231,7 +231,7 @@ static float _smooth(float raw) {
 // Public API
 // =============================================================================
 
-void egtScreen_init(Adafruit_SSD1306 *dsp) {  // TEMP — SSD1306 for 0.96" test display
+void egtScreen_init(Adafruit_SH1106G *dsp) {
     _display = dsp;
 
     // Reset all tracking state
