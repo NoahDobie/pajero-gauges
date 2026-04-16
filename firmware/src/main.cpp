@@ -166,6 +166,9 @@ void setup() {
     Serial.begin(115200);
     Serial.println("\n=== Pajero Gauges - DEV BUILD ===");
 
+    // Wait for car to turn on
+    delay(3000);
+
     // ADC
     analogSetPinAttenuation(PIN_MAP1, ADC_11db);
     analogSetPinAttenuation(PIN_MAP2, ADC_11db);
