@@ -32,7 +32,7 @@ static Adafruit_SH1106G *_display = nullptr;
 // Max EGT the bar graph represents (°C).
 // 800 °C gives a visual margin above the 700 °C sustained safe limit
 // for the 4D56T — anything higher pegs the bar at full.
-static const float MAX_BAR_EGT = 700.0f;
+static const float MAX_BAR_EGT = 800.0f;
 
 // Tracking for partial-refresh rendering
 static float _lastTemp     = -999.0f;
@@ -125,7 +125,7 @@ static void _drawStaticComponents() {
 // cells whose value changed since the last frame are cleared and reprinted.
 // A single display->display() call is made at the end if anything changed.
 // =============================================================================
-static void _renderEgtDigits(float temp) {
+static bool _renderEgtDigits(float temp) {
     int intTemp = (int)temp;
     int hundreds = (intTemp / 100) % 10;
     int tens     = (intTemp / 10)  % 10;
@@ -167,8 +167,8 @@ static void _renderEgtDigits(float temp) {
         changed = true;
     }
 
-    if (changed) _display->display();
     _lastTemp = temp;
+    return changed;
 }
 
 
@@ -180,7 +180,7 @@ static void _renderEgtDigits(float temp) {
 // entirely if the bar hasn't moved.  When the bar shrinks, only the vacated
 // region is erased (black fill), then the active region is redrawn (white).
 // =============================================================================
-static void _renderBar(float temp) {
+static bool _renderBar(float temp) {
     float barW = map((long)(temp * 10), 0,
                      (long)(MAX_BAR_EGT * 10), 0, 1260) / 10.0f;
     barW = constrain(barW, 0.0f, 126.0f);
@@ -188,7 +188,7 @@ static void _renderBar(float temp) {
     int newPx = (int)barW;
     int oldPx = (int)_lastBarWidth;
 
-    if (newPx == oldPx) return;
+    if (newPx == oldPx) return false;
 
     // Erase using integer pixel boundaries — no truncation gap possible
     if (newPx < oldPx) {
@@ -199,8 +199,8 @@ static void _renderBar(float temp) {
         _display->fillRect(1, 58, newPx, 5, SH110X_WHITE);
     }
 
-    _display->display();
     _lastBarWidth = barW;
+    return true;
 }
 
 
@@ -255,6 +255,8 @@ void egtScreen_update(float egtCelsius) {
     // Smooth for display — adaptive alpha snaps on rapid changes
     float smoothed = _smooth(clamped);
 
-    _renderEgtDigits(smoothed);
-    _renderBar(smoothed);
+    bool dirty = false;
+    dirty |= _renderEgtDigits(smoothed);
+    dirty |= _renderBar(smoothed);
+    if (dirty) _display->display();
 }

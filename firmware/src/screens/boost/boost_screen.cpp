@@ -125,7 +125,7 @@ static void _drawStaticComponents() {
 // The decimal point is always redrawn since it's tiny and not worth tracking.
 // A single display->display() call is made at the end if anything changed.
 // =============================================================================
-static void _renderBoostDigits(float pressure) {
+static bool _renderBoostDigits(float pressure) {
     int intPart  = (int)pressure;
     int tens     = (intPart / 10) % 10;
     int ones     = intPart % 10;
@@ -172,8 +172,8 @@ static void _renderBoostDigits(float pressure) {
         changed = true;
     }
 
-    if (changed) _display->display();
     _lastPressure = pressure;
+    return changed;
 }
 
 
@@ -185,7 +185,7 @@ static void _renderBoostDigits(float pressure) {
 // entirely if the bar hasn't moved.  When the bar shrinks, only the vacated
 // region is erased (black fill), then the active region is redrawn (white).
 // =============================================================================
-static void _renderBar(float pressure) {
+static bool _renderBar(float pressure) {
     float barW = map((long)(pressure * 10), 0,
                      (long)(MAX_BAR_PSI * 10), 0, 1260) / 10.0f;
     barW = constrain(barW, 0.0f, 126.0f);
@@ -193,7 +193,7 @@ static void _renderBar(float pressure) {
     int newPx = (int)barW;
     int oldPx = (int)_lastBarWidth;
 
-    if (newPx == oldPx) return;
+    if (newPx == oldPx) return false;
 
     // Erase using integer pixel boundaries — no truncation gap possible
     if (newPx < oldPx) {
@@ -204,8 +204,8 @@ static void _renderBar(float pressure) {
         _display->fillRect(1, 58, newPx, 5, SH110X_WHITE);
     }
 
-    _display->display();
     _lastBarWidth = barW;
+    return true;
 }
 
 
@@ -218,7 +218,7 @@ static void _renderBar(float pressure) {
 // to avoid unnecessary redraws — the max value only ever increases, so
 // in practice only a few digit updates happen across an entire drive.
 // =============================================================================
-static void _renderMax(float maxPsi) {
+static bool _renderMax(float maxPsi) {
     int intPart  = (int)maxPsi;
     int tens     = (intPart / 10) % 10;
     int ones     = intPart % 10;
@@ -260,8 +260,8 @@ static void _renderMax(float maxPsi) {
         changed = true;
     }
 
-    if (changed) _display->display();
     _lastMaxPressure = maxPsi;
+    return changed;
 }
 
 
@@ -328,7 +328,9 @@ void boostScreen_update(float boostPsi) {
     // Smooth for display — adaptive alpha snaps up on spikes, smooth at idle
     float smoothed = _smooth(clamped);
 
-    _renderBoostDigits(smoothed);
-    _renderMax(_maxPsi);
-    _renderBar(smoothed);
+    bool dirty = false;
+    dirty |= _renderBoostDigits(smoothed);
+    dirty |= _renderMax(_maxPsi);
+    dirty |= _renderBar(smoothed);
+    if (dirty) _display->display();
 }

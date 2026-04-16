@@ -31,7 +31,7 @@ static const int BODY_X = 3, BODY_Y = 16, BODY_W = 58, BODY_H = 48;
 
 // Two solid terminal pins above body — symmetric about the body centre
 static const int PIN_W = 10, PIN_H = 6, PIN_Y = BODY_Y - PIN_H;
-static const int PIN_X[2] = { 12, 42 };   // left and right pin x (within half)
+static const int PIN_X[2] = { 8, 46 };   // left and right pin x (within half)
 
 // "XX.X" digit block: textSize 2 → 12×16 px per char, 48 px total width
 // Centred in the body interior (56 px wide, 46 px tall after 1 px borders)
@@ -52,7 +52,7 @@ static void _drawChrome(int xOff) {
 }
 
 
-static void _renderDigits(int xOff, float voltage, float &lastV) {
+static bool _renderDigits(int xOff, float voltage, float &lastV) {
     int iv = (int)voltage;
     int tens  = (iv / 10) % 10,  ones  = iv % 10,  dec  = (int)(voltage * 10) % 10;
 
@@ -91,8 +91,8 @@ static void _renderDigits(int xOff, float voltage, float &lastV) {
         changed = true;
     }
 
-    if (changed) _display->display();
     lastV = voltage;
+    return changed;
 }
 
 
@@ -118,7 +118,9 @@ void batteryScreen_update(float bat1Voltage, float bat2Voltage) {
         constrain(bat1Voltage, 0.0f, 19.9f),
         constrain(bat2Voltage, 0.0f, 19.9f)
     };
+    bool dirty = false;
     for (int i = 0; i < 2; i++) {
-        _renderDigits(HALF_X[i], v[i], _lastV[i]);
+        dirty |= _renderDigits(HALF_X[i], v[i], _lastV[i]);
     }
+    if (dirty) _display->display();
 }
