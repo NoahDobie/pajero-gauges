@@ -31,6 +31,7 @@
 #include "screens/battery/battery_screen.h"
 #include "screens/egt/egt_screen.h"
 #include "screens/afr/afr_screen.h"
+#include "screens/splash.h"
 
 // =============================================================================
 // Pin definitions
@@ -198,8 +199,14 @@ void setup() {
     afrDisplay.clearDisplay();
     afrDisplay.display();
 
+    // Run the coordinated full-width Pajero logo splash across all four screens.
+    runSplash(tcaSelect,
+              MUX_CH_BATTERY, &batteryDisplay,
+              MUX_CH_AFR,     &afrDisplay,
+              MUX_CH_EGT,     &egtDisplay,
+              MUX_CH_BOOST,   &boostDisplay);
+
     // Hand each display to its screen module.
-    // The boost splash animation runs inside this call.
     tcaSelect(MUX_CH_BOOST);
     float baselineKpa = 0.0f;
     boostScreen_init(&boostDisplay, baselineKpa);
