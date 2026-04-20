@@ -37,7 +37,6 @@ static Preferences _prefs;
 // Module state
 // =============================================================================
 static bool _otaMode = false;
-static bool _welcomeSent = false;
 static AsyncWebServer _webServer(80);
 static DNSServer      _dnsServer;
 
@@ -129,6 +128,29 @@ bool ota_checkAndStart() {
                 WebSerial.printf("WiFi AP: %s  IP: %s\n", OTA_AP_SSID,
                                  WiFi.softAPIP().toString().c_str());
                 WebSerial.printf("Clients: %d\n", WiFi.softAPgetStationNum());
+            } else if (cmd == "battery" || cmd == "bat") {
+                if (!_diagCallback) { WebSerial.println("No sensor callback registered"); return; }
+                _diagMode = "battery";
+                _diagLastMs = 0;
+                WebSerial.println("Streaming battery... (type 'stop' to end)");
+            } else if (cmd == "boost" || cmd == "map") {
+                if (!_diagCallback) { WebSerial.println("No sensor callback registered"); return; }
+                _diagMode = "boost";
+                _diagLastMs = 0;
+                WebSerial.println("Streaming boost... (type 'stop' to end)");
+            } else if (cmd == "egt" || cmd == "temp") {
+                if (!_diagCallback) { WebSerial.println("No sensor callback registered"); return; }
+                _diagMode = "egt";
+                _diagLastMs = 0;
+                WebSerial.println("Streaming EGT... (type 'stop' to end)");
+            } else if (cmd == "status" || cmd == "all") {
+                if (!_diagCallback) { WebSerial.println("No sensor callback registered"); return; }
+                _diagMode = "status";
+                _diagLastMs = 0;
+                WebSerial.println("Streaming all sensors... (type 'stop' to end)");
+            } else if (cmd == "stop" || cmd == "s") {
+                _diagMode = "";
+                WebSerial.println("Streaming stopped.");
             } else if (cmd == "help" || cmd == "?") {
                 WebSerial.println("Commands:");
                 WebSerial.println("  battery — stream ADC + voltage");

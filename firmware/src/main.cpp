@@ -26,7 +26,6 @@
 #include <Adafruit_SH110X.h>
 #include <Adafruit_MAX31855.h>
 #include <SPI.h>
-#include <WiFi.h>
 #include <WebSerial.h>
 
 #include "ota/ota.h"
