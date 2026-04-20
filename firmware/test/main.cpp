@@ -26,11 +26,13 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
+#include <WiFi.h>
 
-#include "./src/screens/battery/battery_screen.h"
-#include "./src/screens/boost/boost_screen.h"
-#include "./src/screens/egt/egt_screen.h"
-#include "./src/screens/afr/afr_screen.h"
+#include "ota/ota.h"
+#include "screens/battery/battery_screen.h"
+#include "screens/boost/boost_screen.h"
+#include "screens/egt/egt_screen.h"
+#include "screens/afr/afr_screen.h"
 
 // =============================================================================
 // Screen selection
@@ -40,6 +42,7 @@ enum ScreenID {
     SCREEN_BOOST   = 2,
     SCREEN_EGT     = 3,
     SCREEN_AFR     = 4,
+    SCREEN_OTA     = 5,
 };
 
 #define DEFAULT_SCREEN  SCREEN_BATTERY   // ← loaded if no input within timeout
@@ -58,6 +61,9 @@ Adafruit_SH1106G display(128, 64, &Wire, -1);
 // =============================================================================
 static void printMenu() {
     Serial.println();
+    Serial.println();
+    Serial.println();
+    Serial.println();
     Serial.println("============================================");
     Serial.println("  Pajero Gauges — Screen Test Harness");
     Serial.println("============================================");
@@ -66,7 +72,9 @@ static void printMenu() {
     Serial.println("    2 — Boost gauge");
     Serial.println("    3 — EGT gauge");
     Serial.println("    4 — AFR gauge");
+    Serial.println("    5 — OTA WiFi mode");
     Serial.println();
+    Serial.println("  (or press EN/RST 3x rapidly for OTA)");
     Serial.printf("  (default: %d in 3 s if no input)\n", DEFAULT_SCREEN);
     Serial.println("============================================");
     Serial.print("> ");
@@ -93,7 +101,7 @@ static ScreenID waitForSelection() {
     Serial.println();
 
     int choice = input.toInt();
-    if (choice >= SCREEN_BATTERY && choice <= SCREEN_AFR) {
+    if (choice >= SCREEN_BATTERY && choice <= SCREEN_OTA) {
         return (ScreenID)choice;
     }
 
@@ -135,8 +143,7 @@ static void runBatteryScreen() {
 static void runBoostScreen() {
     Serial.println("BOOST SCREEN — random 0–18 PSI");
 
-    float baselineKpa = 101.3f;
-    boostScreen_init(&display, baselineKpa);
+    boostScreen_init(&display);
 
     while (true) {
         float boost = randomFloat(0.0f, 18.0f);
@@ -172,6 +179,25 @@ static void runAfrScreen() {
     }
 }
 
+static void runOtaScreen() {
+    Serial.println("OTA WIFI MODE");
+    display.clearDisplay();
+    display.setTextColor(SH110X_WHITE);
+    display.setTextSize(1);
+    display.setCursor(4, 0);
+    display.print("OTA WiFi Mode");
+    display.setCursor(4, 30);
+    display.printf("AP: %s", "PajeroGauges");
+    display.setCursor(4, 46);
+    display.printf("IP: %s", WiFi.softAPIP().toString().c_str());
+    display.display();
+
+    while (true) {
+        ota_handle();
+        delay(10);
+    }
+}
+
 // =============================================================================
 // Arduino entry points
 // =============================================================================
@@ -179,15 +205,26 @@ void setup() {
     Serial.begin(115200);
     delay(500);   // let the serial monitor connect before printing the menu
 
+    // Triple-reset detection — press EN button 3x rapidly for OTA
+    if (ota_checkAndStart()) {
+        initDisplay();
+        runOtaScreen();
+        // never returns
+    }
+
     initDisplay();
 
     ScreenID screen = waitForSelection();
+
+    // Clear reset counter now that we're past the selection window
+    ota_clearResetCounter();
 
     switch (screen) {
         case SCREEN_BATTERY: runBatteryScreen(); break;
         case SCREEN_BOOST:   runBoostScreen();   break;
         case SCREEN_EGT:     runEgtScreen();     break;
         case SCREEN_AFR:     runAfrScreen();     break;
+        case SCREEN_OTA:     ota_forceStart(); runOtaScreen(); break;
     }
 }
 

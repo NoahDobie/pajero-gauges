@@ -26,11 +26,23 @@
 #include <Adafruit_SH110X.h>
 #include <Adafruit_MAX31855.h>
 #include <SPI.h>
+#include <WiFi.h>
+#include <WebSerial.h>
 
+#include "ota/ota.h"
 #include "screens/boost/boost_screen.h"
 #include "screens/battery/battery_screen.h"
 #include "screens/egt/egt_screen.h"
 #include "screens/afr/afr_screen.h"
+
+// =============================================================================
+// Screen enable flags — set to true to activate a screen in the main loop.
+// Disabled screens still get init'd (static chrome) but are not updated.
+// =============================================================================
+#define ENABLE_BOOST    true
+#define ENABLE_BATTERY  true
+#define ENABLE_EGT      false
+#define ENABLE_AFR      false
 
 // =============================================================================
 // Pin definitions
@@ -60,8 +72,6 @@
 // =============================================================================
 // ADC configuration
 // =============================================================================
-#define ADC_MAX_RAW     4095.0f
-#define ADC_VREF        3.3f
 #define ADC_SAMPLES     16
 
 // =============================================================================
@@ -90,6 +100,11 @@
 #define MAP_KPA_LOW     1.1f
 #define MAP_KPA_HIGH  315.5f
 
+// Fallback reference pressure used when MAP sensor 2 is not connected.
+// Any reading below MAP_REF_MIN_KPA is considered a disconnected sensor.
+#define MAP_ATMOSPHERE_KPA  101.3f   // standard atmosphere at sea level
+#define MAP_REF_MIN_KPA      50.0f   // below this → sensor absent
+
 // =============================================================================
 // Display objects — one per physical OLED, each with its own framebuffer
 // =============================================================================
@@ -108,6 +123,7 @@ Adafruit_MAX31855 thermocouple(PIN_TC_SCK, PIN_TC_CS, PIN_TC_SO);
 // =============================================================================
 #define UPDATE_INTERVAL_MS      50   // ~20 Hz — fast enough for smooth bar graph
 #define BATTERY_UPDATE_FRAMES   10   // update battery screen every 10 frames (~500 ms)
+#define MAP2_UPDATE_FRAMES     100   // re-read barometric ref every 100 frames (~5 s)
 
 
 // =============================================================================
@@ -116,10 +132,10 @@ Adafruit_MAX31855 thermocouple(PIN_TC_SCK, PIN_TC_CS, PIN_TC_SO);
 static float readADCVoltage(uint8_t pin) {
     uint32_t sum = 0;
     for (int i = 0; i < ADC_SAMPLES; i++) {
-        sum += analogRead(pin);
+        sum += analogReadMilliVolts(pin);
         delayMicroseconds(100);
     }
-    return ((float)(sum / ADC_SAMPLES) / ADC_MAX_RAW) * ADC_VREF;
+    return (float)(sum / ADC_SAMPLES) / 1000.0f;
 }
 
 // =============================================================================
@@ -159,14 +175,55 @@ static void tcaSelect(uint8_t channel) {
 
 
 // =============================================================================
+// Sensor baseline state — populated during the 3-second startup window
+// =============================================================================
+static float _baselineRefKpa = MAP_ATMOSPHERE_KPA;
+
+
+// =============================================================================
+// Diagnostic streaming callback — called by OTA module at ~1 Hz
+// =============================================================================
+static void diagHandler(const char *mode) {
+    String m(mode);
+
+    if (m == "battery" || m == "status") {
+        float adc1 = readADCVoltage(PIN_BAT1);
+        float adc2 = readADCVoltage(PIN_BAT2);
+        WebSerial.printf("BAT1: ADC=%.3fV  V=%.2f | BAT2: ADC=%.3fV  V=%.2f\n",
+                         adc1, adcToBatVoltage(adc1),
+                         adc2, adcToBatVoltage(adc2));
+    }
+    if (m == "boost" || m == "status") {
+        float adc1 = readADCVoltage(PIN_MAP1);
+        float adc2 = readADCVoltage(PIN_MAP2);
+        float kpa1 = adcToMapKpa(adc1);
+        float kpa2 = adcToMapKpa(adc2);
+        WebSerial.printf("MAP1: ADC=%.3fV  kPa=%.1f  PSI=%.2f | MAP2: ADC=%.3fV  kPa=%.1f\n",
+                         adc1, kpa1, relativeBoostPsi(kpa1, kpa2),
+                         adc2, kpa2);
+    }
+    if (m == "egt" || m == "status") {
+        float egtC = thermocouple.readCelsius();
+        float cjC  = thermocouple.readInternal();
+        WebSerial.printf("EGT: %.1f°C  CJ: %.1f°C%s\n",
+                         isnan(egtC) ? 0.0f : egtC, cjC,
+                         isnan(egtC) ? "  [FAULT]" : "");
+    }
+}
+
+
+// =============================================================================
 // Setup
 // =============================================================================
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n=== Pajero Gauges - DEV BUILD ===");
+    Serial.println("\n=== Pajero Gauges ===");
 
-    // Wait for car to turn on
-    delay(3000);
+    // Triple-reset OTA detection — must be first thing after Serial.begin()
+    bool otaActive = ota_checkAndStart();
+    if (otaActive) {
+        Serial.println("OTA mode active — WiFi running alongside gauges");
+    }
 
     // ADC
     analogSetPinAttenuation(PIN_MAP1, ADC_11db);
@@ -178,8 +235,42 @@ void setup() {
     pinMode(PIN_BAT1, INPUT);
     pinMode(PIN_BAT2, INPUT);
 
+    // =========================================================================
+    // 3-second sensor preload — sample MAP2 baseline + battery voltages
+    // so displays show real values immediately on screen-on.
+    // =========================================================================
+    const unsigned long preloadStart = millis();
+    float map2Sum = 0.0f, bat1Sum = 0.0f, bat2Sum = 0.0f;
+    int   sampleCount = 0;
+
+    while ((millis() - preloadStart) < 3000) {
+        float m2 = adcToMapKpa(readADCVoltage(PIN_MAP2));
+        float b1 = adcToBatVoltage(readADCVoltage(PIN_BAT1));
+        float b2 = adcToBatVoltage(readADCVoltage(PIN_BAT2));
+        map2Sum += m2;
+        bat1Sum += b1;
+        bat2Sum += b2;
+        sampleCount++;
+        delay(20);   // ~150 samples over 3 seconds
+    }
+
+    float initBat1V = 0.0f, initBat2V = 0.0f;
+    if (sampleCount > 0) {
+        float avgMap2 = map2Sum / sampleCount;
+        _baselineRefKpa = (avgMap2 >= MAP_REF_MIN_KPA) ? avgMap2 : MAP_ATMOSPHERE_KPA;
+        initBat1V = bat1Sum / sampleCount;
+        initBat2V = bat2Sum / sampleCount;
+    }
+
+    // 3-second preload complete — clear reset counter so a later
+    // reset doesn't falsely trigger OTA mode
+    ota_clearResetCounter();
+
+    Serial.printf("Preload: %d samples, ref=%.1f kPa, bat1=%.1fV, bat2=%.1fV\n",
+                  sampleCount, _baselineRefKpa, initBat1V, initBat2V);
+
     // I2C + mux + displays
-    Wire.begin(I2C_SDA, I2C_SCL, 400000);   // 400 kHz Fast Mode — halves display I2C time
+    Wire.begin(I2C_SDA, I2C_SCL, 400000);   // 400 kHz Fast Mode
 
     tcaSelect(MUX_CH_BOOST);
     boostDisplay.begin(0x3C, false);
@@ -201,25 +292,38 @@ void setup() {
     afrDisplay.clearDisplay();
     afrDisplay.display();
 
-    // Hand each display to its screen module.
+    // Initialise all screens — chrome is drawn regardless of enable state
     tcaSelect(MUX_CH_BOOST);
-    float baselineKpa = 0.0f;
-    boostScreen_init(&boostDisplay, baselineKpa);
-
-    tcaSelect(MUX_CH_BATTERY);
-    batteryScreen_init(&batteryDisplay);
+    boostScreen_init(&boostDisplay);
 
     tcaSelect(MUX_CH_EGT);
     egtScreen_init(&egtDisplay);
 
-    // TODO: wire real wideband O2 sensor input (pin TBD)
     tcaSelect(MUX_CH_AFR);
     afrScreen_init(&afrDisplay);
 
-    // MAX31855 thermocouple
-    if (!thermocouple.begin()) {
-        Serial.println("ERROR: MAX31855 not found!");
+    tcaSelect(MUX_CH_BATTERY);
+    batteryScreen_init(&batteryDisplay);
+    batteryScreen_update(initBat1V, initBat2V);   // show real voltage immediately
+
+    // OTA indicator — fits in the blank space above the battery pins
+    if (otaActive) {
+        tcaSelect(MUX_CH_BATTERY);
+        batteryDisplay.setTextSize(1);
+        batteryDisplay.setTextColor(SH110X_WHITE);
+        batteryDisplay.setCursor(0, 0);
+        batteryDisplay.print("OTA Wifi Mode");
+        batteryDisplay.display();
     }
+
+    if (ENABLE_EGT) {
+        if (!thermocouple.begin()) {
+            Serial.println("ERROR: MAX31855 not found!");
+        }
+    }
+
+    // Register OTA diagnostic callback (works even if OTA not active yet)
+    ota_setDiagCallback(diagHandler);
 
     Serial.println("Ready.\n");
 }
@@ -229,37 +333,65 @@ void setup() {
 // Main loop
 // =============================================================================
 void loop() {
-    static uint8_t batteryFrame = 0;
+    // Service OTA/WiFi if active (non-blocking)
+    ota_handle();
 
-    // --- Read sensors ---
-    float map1Kpa  = adcToMapKpa(readADCVoltage(PIN_MAP1));
-    float map2Kpa  = adcToMapKpa(readADCVoltage(PIN_MAP2));
-    float boostPsi = relativeBoostPsi(map1Kpa, map2Kpa);
+    static uint8_t  batteryFrame = 0;
+    static uint8_t  map2Frame    = 0;
+    static float    refKpa       = _baselineRefKpa;
+    static float    map2Sum      = 0.0f;
+    static uint8_t  map2Samples  = 0;
 
-    float bat1V = adcToBatVoltage(readADCVoltage(PIN_BAT1));
-    float bat2V = adcToBatVoltage(readADCVoltage(PIN_BAT2));
+    // --- Boost ---
+    if (ENABLE_BOOST) {
+        float map1Kpa  = adcToMapKpa(readADCVoltage(PIN_MAP1));
+        float boostPsi = relativeBoostPsi(map1Kpa, refKpa);
 
-    float egtC = thermocouple.readCelsius();
-    if (isnan(egtC)) egtC = 0.0f;               // sensor fault → show zero
+        // MAP2 (barometric ref) — sample every 10th frame, average over ~5 s
+        if (map2Frame % 10 == 0) {
+            map2Sum += adcToMapKpa(readADCVoltage(PIN_MAP2));
+            map2Samples++;
+        }
+        if (++map2Frame >= MAP2_UPDATE_FRAMES) {
+            map2Frame = 0;
+            if (map2Samples > 0) {
+                float avgMap2 = map2Sum / map2Samples;
+                if (avgMap2 >= MAP_REF_MIN_KPA) refKpa = avgMap2;
+            }
+            map2Sum = 0.0f;
+            map2Samples = 0;
+        }
 
-    Serial.printf("MAP1: %.1f kPa | MAP2: %.1f kPa | Boost: %.1f PSI | BAT1: %.1fV | BAT2: %.1fV | EGT: %.0f C\n",
-                  map1Kpa, map2Kpa, boostPsi, bat1V, bat2V, egtC);
+        tcaSelect(MUX_CH_BOOST);
+        boostScreen_update(boostPsi);
+    }
 
-    // --- Update displays ---
-    tcaSelect(MUX_CH_BOOST);
-    boostScreen_update(boostPsi);
+    // --- Battery — every ~500 ms ---
+    if (ENABLE_BATTERY) {
+        if (++batteryFrame >= BATTERY_UPDATE_FRAMES) {
+            batteryFrame = 0;
+            float bat1V = adcToBatVoltage(readADCVoltage(PIN_BAT1));
+            float bat2V = adcToBatVoltage(readADCVoltage(PIN_BAT2));
 
-    tcaSelect(MUX_CH_EGT);
-    egtScreen_update(egtC);
+            tcaSelect(MUX_CH_BATTERY);
+            batteryScreen_update(bat1V, bat2V);
+        }
+    }
+    
 
-    // TODO: replace with real wideband O2 ADC read once sensor is wired
-    tcaSelect(MUX_CH_AFR);
-    afrScreen_update(0.0f);
+    // --- EGT ---
+    if (ENABLE_EGT) {
+        float egtC = thermocouple.readCelsius();
+        if (isnan(egtC)) egtC = 0.0f;
+        tcaSelect(MUX_CH_EGT);
+        egtScreen_update(egtC);
+    }
 
-    if (++batteryFrame >= BATTERY_UPDATE_FRAMES) {
-        batteryFrame = 0;
-        tcaSelect(MUX_CH_BATTERY);
-        batteryScreen_update(bat1V, bat2V);
+    // --- AFR ---
+    if (ENABLE_AFR) {
+        // TODO: replace with real wideband O2 ADC read once sensor is wired
+        tcaSelect(MUX_CH_AFR);
+        afrScreen_update(0.0f);
     }
 
     delay(UPDATE_INTERVAL_MS);
