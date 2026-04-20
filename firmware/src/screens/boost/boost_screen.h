@@ -13,12 +13,8 @@
 #include <Adafruit_SH110X.h>
 
 // Call once after the display has been begin()'d.
-// Runs the Pajero splash animation while sampling the MAP sensors to build
-// a baseline atmospheric reference, then draws the static gauge chrome.
-//
-//   *dsp        — pointer to the shared display object
-//   baselineKpa — receives the averaged barometric baseline (from MAP2)
-void boostScreen_init(Adafruit_SH1106G *dsp, float &baselineKpa);
+// Draws the static gauge chrome and renders initial zero values.
+void boostScreen_init(Adafruit_SH1106G *dsp);
 
 // Call every loop iteration with the latest boost PSI value.
 // Handles EMA smoothing, max-pressure tracking, and partial-refresh

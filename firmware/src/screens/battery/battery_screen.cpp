@@ -27,6 +27,17 @@ static Adafruit_SH1106G *_display = nullptr;
 // Partial-refresh state — sentinel forces full redraw on first call
 static float _lastV[2] = { -999.0f, -999.0f };
 
+// EMA smoothing — light filter to prevent ±0.1 V flicker on the display
+static const float BAT_EMA_ALPHA = 0.3f;
+static float _smoothV[2]  = { 0.0f, 0.0f };
+static bool  _smoothSeeded = false;
+
+static float _smooth(float raw, int idx) {
+    if (!_smoothSeeded) return raw;   // first call — seed, don't filter
+    _smoothV[idx] = BAT_EMA_ALPHA * raw + (1.0f - BAT_EMA_ALPHA) * _smoothV[idx];
+    return _smoothV[idx];
+}
+
 
 static void _drawChrome(int x0) {
     // Two solid terminal pins above the body
@@ -94,6 +105,8 @@ static bool _renderDigits(int x0, float voltage, float &lastV) {
 void batteryScreen_init(Adafruit_SH1106G *dsp) {
     _display = dsp;
     _lastV[0] = _lastV[1] = -999.0f;
+    _smoothV[0] = _smoothV[1] = 0.0f;
+    _smoothSeeded = false;
 
     _display->clearDisplay();
     _drawChrome(0);
@@ -104,9 +117,16 @@ void batteryScreen_init(Adafruit_SH1106G *dsp) {
 }
 
 void batteryScreen_update(float bat1Voltage, float bat2Voltage) {
+    // Seed EMA on first real reading
+    if (!_smoothSeeded) {
+        _smoothV[0] = bat1Voltage;
+        _smoothV[1] = bat2Voltage;
+        _smoothSeeded = true;
+    }
+
     float v[2] = {
-        constrain(bat1Voltage, 0.0f, 19.9f),
-        constrain(bat2Voltage, 0.0f, 19.9f)
+        constrain(_smooth(bat1Voltage, 0), 0.0f, 19.9f),
+        constrain(_smooth(bat2Voltage, 1), 0.0f, 19.9f)
     };
     bool dirty = false;
     dirty |= _renderDigits(0,  v[0], _lastV[0]);

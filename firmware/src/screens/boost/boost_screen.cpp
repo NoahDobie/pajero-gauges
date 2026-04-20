@@ -226,7 +226,7 @@ static bool _renderMax(float maxPsi) {
 // Adaptive EMA (Exponential Moving Average) smoothing
 //
 // Filters the raw boost PSI to eliminate digit flicker from ADC noise.
-//   - At idle / steady cruise the alpha is low (0.1) → heavy smoothing,
+//   - At idle / steady cruise the alpha is low (0.05) → heavy smoothing,
 //     rock-stable digits.
 //   - When the raw value jumps more than SPIKE_THRESH away from the
 //     current smoothed value *in either direction*, alpha jumps to 0.5
@@ -236,9 +236,9 @@ static bool _renderMax(float maxPsi) {
 // Note: peak tracking (MAX) uses the raw un-smoothed value so spikes
 // are captured at full magnitude regardless of the filter.
 // =============================================================================
-static const float ALPHA_SLOW    = 0.1f;   // Steady-state smoothing
+static const float ALPHA_SLOW    = 0.05f;   // Steady-state smoothing
 static const float ALPHA_FAST    = 0.5f;   // Spike-tracking response
-static const float SPIKE_THRESH  = 1.0f;   // PSI jump that triggers fast mode
+static const float SPIKE_THRESH  = 2.0f;   // PSI jump that triggers fast mode
 
 static float _smooth(float raw) {
     float jump = raw - _smoothedPsi;
@@ -254,7 +254,7 @@ static float _smooth(float raw) {
 // Public API
 // =============================================================================
 
-void boostScreen_init(Adafruit_SH1106G *dsp, float &baselineKpa) {
+void boostScreen_init(Adafruit_SH1106G *dsp) {
     _display = dsp;
 
     // Reset all tracking state
@@ -265,10 +265,6 @@ void boostScreen_init(Adafruit_SH1106G *dsp, float &baselineKpa) {
     _maxPsi          = 0.0f;
 
     _drawStaticComponents();
-
-    // baselineKpa is sampled by the caller (main) during its own init
-    // sequence — we don't read sensors here so the module stays pure display.
-    (void)baselineKpa;
 
     // Render digits/bar immediately so the screen isn't blank until the first update
     boostScreen_update(0.0f);
