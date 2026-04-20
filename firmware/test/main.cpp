@@ -1,5 +1,5 @@
 // =============================================================================
-// test/main.cpp — Single-display screen layout test harness
+// test/main.cpp — Single-display test harness with always-on OTA
 //
 // Target hardware : Any bare ESP32 dev board + 1× 1.3" SH1106 OLED
 //
@@ -10,42 +10,31 @@
 //   OLED SCL  → GPIO22
 //
 // Build & flash:
-//   pio run -e test --target upload
+//   pio run -e test --target upload --target monitor
 //
 // Usage:
-//   Open the serial monitor (115200 baud).  At startup a menu is printed —
-//   type the number of the screen you want to test and press Enter.
-//   If no input arrives within 3 s, the default screen (battery) is loaded.
+//   OTA WiFi is always active — connect to "PajeroGauges" AP and open
+//   http://192.168.4.1/webserial for the WebSerial console.
 //
-//   To switch screens, press the EN/RST button on the board and choose again.
+//   Switch screens via Serial monitor OR WebSerial:
+//     battery / boost / egt / afr / off   — select screen
+//     help                                — list commands
 //
-// Each screen runner picks random values within a realistic range each update.
+//   Each screen gets fake random sensor values at its normal update rate.
+//   All updates are logged to both Serial and WebSerial.
 // =============================================================================
 
 #include <Arduino.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
-#include <WiFi.h>
+#include <WebSerial.h>
 
 #include "ota/ota.h"
 #include "screens/battery/battery_screen.h"
 #include "screens/boost/boost_screen.h"
 #include "screens/egt/egt_screen.h"
 #include "screens/afr/afr_screen.h"
-
-// =============================================================================
-// Screen selection
-// =============================================================================
-enum ScreenID {
-    SCREEN_BATTERY = 1,
-    SCREEN_BOOST   = 2,
-    SCREEN_EGT     = 3,
-    SCREEN_AFR     = 4,
-    SCREEN_OTA     = 5,
-};
-
-#define DEFAULT_SCREEN  SCREEN_BATTERY   // ← loaded if no input within timeout
 
 // =============================================================================
 // Display — single SH1106 at 0x3C, no mux
@@ -57,144 +46,145 @@ enum ScreenID {
 Adafruit_SH1106G display(128, 64, &Wire, -1);
 
 // =============================================================================
+// Active screen state
+// =============================================================================
+enum ScreenID { SCREEN_OFF = 0, SCREEN_BATTERY, SCREEN_BOOST, SCREEN_EGT, SCREEN_AFR };
+
+static ScreenID _activeScreen  = SCREEN_OFF;
+static ScreenID _pendingScreen = SCREEN_OFF;
+static unsigned long _lastUpdateMs = 0;
+
+// Update interval — all screens update once per second in test
+#define SCREEN_INTERVAL_MS   1000
+
+// =============================================================================
 // Helpers
-// =============================================================================
-static void printMenu() {
-    Serial.println();
-    Serial.println();
-    Serial.println();
-    Serial.println();
-    Serial.println("============================================");
-    Serial.println("  Pajero Gauges — Screen Test Harness");
-    Serial.println("============================================");
-    Serial.println("  Select a screen to preview:");
-    Serial.println("    1 — Battery voltage");
-    Serial.println("    2 — Boost gauge");
-    Serial.println("    3 — EGT gauge");
-    Serial.println("    4 — AFR gauge");
-    Serial.println("    5 — OTA WiFi mode");
-    Serial.println();
-    Serial.println("  (or press EN/RST 3x rapidly for OTA)");
-    Serial.printf("  (default: %d in 3 s if no input)\n", DEFAULT_SCREEN);
-    Serial.println("============================================");
-    Serial.print("> ");
-}
-
-static ScreenID waitForSelection() {
-    printMenu();
-
-    const unsigned long deadline = millis() + 5000;
-    String input = "";
-
-    while (millis() < deadline) {
-        if (Serial.available()) {
-            char c = Serial.read();
-            if (c == '\n' || c == '\r') {
-                if (input.length() > 0) break;
-            } else {
-                input += c;
-                Serial.print(c);  // echo
-            }
-        }
-    }
-
-    Serial.println();
-
-    int choice = input.toInt();
-    if (choice >= SCREEN_BATTERY && choice <= SCREEN_OTA) {
-        return (ScreenID)choice;
-    }
-
-    Serial.printf("No valid input — loading default screen (%d)\n", DEFAULT_SCREEN);
-    return DEFAULT_SCREEN;
-}
-
-static void initDisplay() {
-    Wire.begin(OLED_SDA, OLED_SCL, 400000);   // 400 kHz Fast Mode
-    if (!display.begin(OLED_ADDR, false)) {
-        Serial.println("ERROR: OLED not found — check wiring and address!");
-        while (true) delay(1000);
-    }
-    display.clearDisplay();
-    display.display();
-}
-
-// =============================================================================
-// Screen runners
 // =============================================================================
 static float randomFloat(float lo, float hi) {
     return lo + (hi - lo) * (random(0, 10000) / 10000.0f);
 }
 
-static void runBatteryScreen() {
-    Serial.println("BATTERY SCREEN — random 11.8–14.8 V");
-
-    batteryScreen_init(&display);
-
-    while (true) {
-        float bat1 = randomFloat(11.8f, 14.8f);
-        float bat2 = randomFloat(11.8f, 14.8f);
-        Serial.printf("Updated BAT1=%.1fV  BAT2=%.1fV\n", bat1, bat2);
-        batteryScreen_update(bat1, bat2);
-        delay(500);
-    }
+// Log to both Serial and WebSerial
+static void dualLog(const char *fmt, ...) {
+    char buf[128];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    Serial.print(buf);
+    if (ota_isActive()) WebSerial.print(buf);
 }
 
-static void runBoostScreen() {
-    Serial.println("BOOST SCREEN — random 0–18 PSI");
-
-    boostScreen_init(&display);
-
-    while (true) {
-        float boost = randomFloat(0.0f, 18.0f);
-        Serial.printf("Updated Boost=%.1f PSI\n", boost);
-        boostScreen_update(boost);
-        delay(50);
-    }
-}
-
-static void runEgtScreen() {
-    Serial.println("EGT SCREEN — random 200–700 C");
-
-    egtScreen_init(&display);
-
-    while (true) {
-        float egt = randomFloat(200.0f, 700.0f);
-        Serial.printf("Updated EGT=%.0f C\n", egt);
-        egtScreen_update(egt);
-        delay(50);
-    }
-}
-
-static void runAfrScreen() {
-    Serial.println("AFR SCREEN — random 15.0–50.0");
-
-    afrScreen_init(&display);
-
-    while (true) {
-        float afr = randomFloat(15.0f, 50.0f);
-        Serial.printf("Updated AFR=%.1f\n", afr);
-        afrScreen_update(afr);
-        delay(50);
-    }
-}
-
-static void runOtaScreen() {
-    Serial.println("OTA WIFI MODE");
+// =============================================================================
+// Screen lifecycle
+// =============================================================================
+static void initScreen(ScreenID id) {
     display.clearDisplay();
-    display.setTextColor(SH110X_WHITE);
-    display.setTextSize(1);
-    display.setCursor(4, 0);
-    display.print("OTA WiFi Mode");
-    display.setCursor(4, 30);
-    display.printf("AP: %s", "PajeroGauges");
-    display.setCursor(4, 46);
-    display.printf("IP: %s", WiFi.softAPIP().toString().c_str());
     display.display();
 
-    while (true) {
-        ota_handle();
-        delay(10);
+    switch (id) {
+        case SCREEN_BATTERY:
+            batteryScreen_init(&display);
+            dualLog("Screen: BATTERY (random 11.8–14.8 V)\n");
+            break;
+        case SCREEN_BOOST:
+            boostScreen_init(&display);
+            dualLog("Screen: BOOST (random -5–18 PSI)\n");
+            break;
+        case SCREEN_EGT:
+            egtScreen_init(&display);
+            dualLog("Screen: EGT (random 200–700 °C)\n");
+            break;
+        case SCREEN_AFR:
+            afrScreen_init(&display);
+            dualLog("Screen: AFR (random 10–20)\n");
+            break;
+        case SCREEN_OFF:
+            display.clearDisplay();
+            display.setTextColor(SH110X_WHITE);
+            display.setTextSize(1);
+            display.setCursor(10, 28);
+            display.print("Type 'help' in");
+            display.setCursor(10, 40);
+            display.print("Serial or WebSerial");
+            display.display();
+            dualLog("Screen: OFF\n");
+            break;
+    }
+    _lastUpdateMs = millis();
+}
+
+static void updateScreen() {
+    unsigned long now = millis();
+
+    if (_activeScreen == SCREEN_OFF) return;
+    if ((now - _lastUpdateMs) < SCREEN_INTERVAL_MS) return;
+    _lastUpdateMs = now;
+
+    switch (_activeScreen) {
+        case SCREEN_BATTERY: {
+            float b1 = randomFloat(10.0f, 14.8f);
+            float b2 = randomFloat(10.0f, 14.8f);
+            batteryScreen_update(b1, b2);
+            dualLog("BAT1=%.1fV  BAT2=%.1fV\n", b1, b2);
+            break;
+        }
+        case SCREEN_BOOST: {
+            float psi = randomFloat(0.0f, 18.0f);
+            boostScreen_update(psi);
+            dualLog("Boost=%.1f PSI\n", psi);
+            break;
+        }
+        case SCREEN_EGT: {
+            float egt = randomFloat(200.0f, 700.0f);
+            egtScreen_update(egt);
+            dualLog("EGT=%.0f °C\n", egt);
+            break;
+        }
+        case SCREEN_AFR: {
+            float afr = randomFloat(10.0f, 20.0f);
+            afrScreen_update(afr);
+            dualLog("AFR=%.1f\n", afr);
+            break;
+        }
+        default: break;
+    }
+}
+
+// =============================================================================
+// Command processing — shared between Serial and WebSerial
+// =============================================================================
+static void printHelp() {
+    dualLog("Commands:\n");
+    dualLog("  battery — show battery screen\n");
+    dualLog("  boost   — show boost screen\n");
+    dualLog("  egt     — show EGT screen\n");
+    dualLog("  afr     — show AFR screen\n");
+    dualLog("  off     — blank screen\n");
+    dualLog("  help    — this message\n");
+    dualLog("  (OTA commands also available)\n");
+}
+
+static void handleCommand(const String &raw) {
+    String cmd = raw;
+    cmd.trim();
+    cmd.toLowerCase();
+    if (cmd.length() == 0) return;
+
+    if (cmd == "battery" || cmd == "bat" || cmd == "1") {
+        _pendingScreen = SCREEN_BATTERY;
+    } else if (cmd == "boost" || cmd == "map" || cmd == "2") {
+        _pendingScreen = SCREEN_BOOST;
+    } else if (cmd == "egt" || cmd == "temp" || cmd == "3") {
+        _pendingScreen = SCREEN_EGT;
+    } else if (cmd == "afr" || cmd == "4") {
+        _pendingScreen = SCREEN_AFR;
+    } else if (cmd == "off" || cmd == "0") {
+        _pendingScreen = SCREEN_OFF;
+    } else if (cmd == "help" || cmd == "?") {
+        printHelp();
+    } else {
+        dualLog("Unknown: '%s' (type 'help')\n", cmd.c_str());
     }
 }
 
@@ -203,31 +193,58 @@ static void runOtaScreen() {
 // =============================================================================
 void setup() {
     Serial.begin(115200);
-    delay(500);   // let the serial monitor connect before printing the menu
+    delay(500);
 
-    // Triple-reset detection — press EN button 3x rapidly for OTA
-    if (ota_checkAndStart()) {
-        initDisplay();
-        runOtaScreen();
-        // never returns
-    }
-
-    initDisplay();
-
-    ScreenID screen = waitForSelection();
-
-    // Clear reset counter now that we're past the selection window
+    // Always start OTA — no triple-reset needed in test mode
+    ota_forceStart();
     ota_clearResetCounter();
 
-    switch (screen) {
-        case SCREEN_BATTERY: runBatteryScreen(); break;
-        case SCREEN_BOOST:   runBoostScreen();   break;
-        case SCREEN_EGT:     runEgtScreen();     break;
-        case SCREEN_AFR:     runAfrScreen();     break;
-        case SCREEN_OTA:     ota_forceStart(); runOtaScreen(); break;
+    // Forward unrecognised WebSerial commands to our screen handler
+    ota_setCmdCallback([](const char *cmd) { handleCommand(String(cmd)); });
+
+    // Init display
+    Wire.begin(OLED_SDA, OLED_SCL, 400000);
+    if (!display.begin(OLED_ADDR, false)) {
+        Serial.println("ERROR: OLED not found!");
+        while (true) delay(1000);
     }
+
+    Serial.println("\n============================================");
+    Serial.println("Pajero Gauges — Test Harness");
+    Serial.println("OTA WiFi active");
+    Serial.printf("WebSerial: http://%s/webserial\n",
+                  WiFi.softAPIP().toString().c_str());
+    Serial.println("Type 'help' for commands");
+    Serial.println("============================================\n");
+
+    // Start with screen off — user picks via command
+    _pendingScreen = SCREEN_OFF;
 }
 
 void loop() {
-    // All screen runners loop internally — nothing to do here.
+    // Service OTA (WiFi, ArduinoOTA, WebSerial, DNS)
+    ota_handle();
+
+    // Apply pending screen switch
+    if (_pendingScreen != _activeScreen) {
+        _activeScreen = _pendingScreen;
+        initScreen(_activeScreen);
+    }
+
+    // Update active screen with fake data
+    updateScreen();
+
+    // Read Serial input (line-buffered)
+    static String serialBuf;
+    while (Serial.available()) {
+        char c = Serial.read();
+        if (c == '\n' || c == '\r') {
+            if (serialBuf.length() > 0) {
+                handleCommand(serialBuf);
+                serialBuf = "";
+            }
+        } else {
+            serialBuf += c;
+        }
+    }
 }
