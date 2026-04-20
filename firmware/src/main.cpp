@@ -378,7 +378,6 @@ void loop() {
         }
     }
     
-
     // --- EGT ---
     if (ENABLE_EGT) {
         float egtC = thermocouple.readCelsius();

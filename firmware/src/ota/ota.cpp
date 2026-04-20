@@ -24,7 +24,7 @@
 // Configuration
 // =============================================================================
 #define OTA_AP_SSID     "PajeroGauges"
-#define OTA_AP_PASS     "noahspajero"      // min 8 chars for WPA2
+#define OTA_AP_PASS     "noahspajero"
 
 #define RESETS_NEEDED   3
 
@@ -45,9 +45,9 @@ static const char *OTA_HOSTNAME = "pajero-gauges";
 
 // Diagnostic streaming state
 static OtaDiagCallback _diagCallback = nullptr;
-static String _diagMode = "";                   // "" = off, else "battery"/"boost"/"egt"/"status"
+static String _diagMode = ""; // "" = off, else "battery"/"boost"/"egt"/"status"
 static unsigned long _diagLastMs = 0;
-#define DIAG_INTERVAL_MS  1000                   // stream at ~1 Hz
+#define DIAG_INTERVAL_MS  1000
 
 
 // =============================================================================
@@ -109,15 +109,6 @@ bool ota_checkAndStart() {
 
         WebSerial.begin(&_webServer);
         WebSerial.onMessage([](uint8_t *data, size_t len) {
-            // Welcome banner on first interaction
-            if (!_welcomeSent) {
-                WebSerial.println("=================================");
-                WebSerial.println("  Pajero Gauges - OTA Console");
-                WebSerial.println("  Type 'help' for commands");
-                WebSerial.println("=================================");
-                _welcomeSent = true;
-            }
-
             String cmd = String((char *)data, len);
             cmd.trim();
             cmd.toLowerCase();
