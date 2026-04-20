@@ -198,7 +198,7 @@ static void diagHandler(const char *mode) {
         float adc2 = readADCVoltage(PIN_MAP2);
         float kpa1 = adcToMapKpa(adc1);
         float kpa2 = adcToMapKpa(adc2);
-        WebSerial.printf("MAP1: ADC=%.3fV  kPa=%.1f  PSI=%.2f | MAP2: ADC=%.3fV  kPa=%.1f\n",
+        WebSerial.printf("MAP1: ADC=%.3fV  kPa=%.1f  PSI=%.2f | MAP2 (Ref): ADC=%.3fV  kPa=%.1f\n",
                          adc1, kpa1, relativeBoostPsi(kpa1, kpa2),
                          adc2, kpa2);
     }

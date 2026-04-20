@@ -140,8 +140,13 @@ bool ota_checkAndStart() {
                 WebSerial.printf("Clients: %d\n", WiFi.softAPgetStationNum());
             } else if (cmd == "help" || cmd == "?") {
                 WebSerial.println("Commands:");
+                WebSerial.println("  battery — stream ADC + voltage");
+                WebSerial.println("  boost   — stream MAP kPa + PSI");
+                WebSerial.println("  egt     — stream thermocouple C");
+                WebSerial.println("  status  — stream all sensors");
+                WebSerial.println("  stop    — stop streaming");
+                WebSerial.println("  info    — chip/memory/uptime");
                 WebSerial.println("  reboot  — restart ESP32");
-                WebSerial.println("  info    — show chip/memory/uptime info");
                 WebSerial.println("  help    — this message");
             } else {
                 WebSerial.printf("Unknown command: '%s' (type 'help')\n", cmd.c_str());
