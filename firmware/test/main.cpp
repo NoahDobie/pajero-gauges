@@ -82,22 +82,27 @@ static void initScreen(ScreenID id) {
     display.clearDisplay();
     display.display();
 
+    const char *screenName = "off";
     switch (id) {
         case SCREEN_BATTERY:
             batteryScreen_init(&display);
-            dualLog("Screen: BATTERY (random 11.8–14.8 V)\n");
+            screenName = "battery";
+            dualLog("Screen: BATTERY (random 11.8-14.8 V)\n");
             break;
         case SCREEN_BOOST:
             boostScreen_init(&display);
-            dualLog("Screen: BOOST (random -5–18 PSI)\n");
+            screenName = "boost";
+            dualLog("Screen: BOOST (random 0-18 PSI)\n");
             break;
         case SCREEN_EGT:
             egtScreen_init(&display);
-            dualLog("Screen: EGT (random 200–700 °C)\n");
+            screenName = "egt";
+            dualLog("Screen: EGT (random 200-700 C)\n");
             break;
         case SCREEN_AFR:
             afrScreen_init(&display);
-            dualLog("Screen: AFR (random 10–20)\n");
+            screenName = "afr";
+            dualLog("Screen: AFR (random 15-50)\n");
             break;
         case SCREEN_OFF:
             display.clearDisplay();
@@ -108,9 +113,11 @@ static void initScreen(ScreenID id) {
             display.setCursor(10, 40);
             display.print("Serial or WebSerial");
             display.display();
+            screenName = "off";
             dualLog("Screen: OFF\n");
             break;
     }
+    ota_setCurrentScreen(screenName);
     _lastUpdateMs = millis();
 }
 
@@ -142,7 +149,7 @@ static void updateScreen() {
             break;
         }
         case SCREEN_AFR: {
-            float afr = randomFloat(10.0f, 20.0f);
+            float afr = randomFloat(15.0f, 50.0f);
             afrScreen_update(afr);
             dualLog("AFR=%.1f\n", afr);
             break;
